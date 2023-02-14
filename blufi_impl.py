@@ -10,6 +10,7 @@ import time
 from bleak import BleakClient
 
 from blelibs.framectrldata import FrameCtrlData
+from blelibs.notifydata import BlufiNotifyData
 import proto.esp_driver_pb2
 import proto.luba_msg_pb2
 
@@ -73,6 +74,7 @@ class Blufi:
     mSendSequence = itertools.count()
     mReadSequence = itertools.count()
     mAck = queue.Queue()
+    mNotifyData: BlufiNotifyData = None
 
     def __init__(self, client: BleakClient):
         self.client = client
@@ -292,5 +294,105 @@ class Blufi:
         except Exception as err:
             
             return ""
+        
+
+    def onCharacteristicChanged(self, bluetoothGattCharacteristic: bytearray):
+            if (bluetoothGattCharacteristic.equals(BlufiClientImpl.this.mNotifyChar)):
+                if (BlufiClientImpl.this.mNotifyData == null)
+                    self.mNotifyData = BlufiNotifyData();
+                
+                byte[] value = bluetoothGattCharacteristic.getValue();
+                if (BlufiClientImpl.this.mPrintDebug) {
+                    Log.i(BlufiClientImpl.TAG, "Gatt Notification: " + Arrays.toString(value));
+                }
+                BlufiClientImpl blufiClientImpl = BlufiClientImpl.this;
+                int parseNotification = blufiClientImpl.parseNotification(value, blufiClientImpl.mNotifyData);
+                if (parseNotification < 0) {
+                    BlufiClientImpl.this.onError(-1000);
+                } else if (parseNotification == 0) {
+                    BlufiClientImpl blufiClientImpl2 = BlufiClientImpl.this;
+                    blufiClientImpl2.parseBlufiNotifyData(blufiClientImpl2.mNotifyData);
+                    BlufiClientImpl.this.mNotifyData = null;
+                }
+            
+            # if (BlufiClientImpl.this.mUserGattCallback != null) {
+            #     BlufiClientImpl.this.mUserGattCallback.onCharacteristicChanged(bluetoothGatt, bluetoothGattCharacteristic);
+            # }
+        
+
+        def parseNotification(byte[] bArr, BlufiNotifyData blufiNotifyData) {
+        if (bArr == null) {
+            Log.w(TAG, "parseNotification null data");
+            return -1;
+        }
+        if (this.mPrintDebug) {
+            Log.d(TAG, "parseNotification Notification= " + Arrays.toString(bArr));
+        }
+        if (bArr.length < 4) {
+            Log.w(TAG, "parseNotification data length less than 4");
+            return -2;
+        }
+        int i = toInt(bArr[2]);
+        this.mReadSequence_1.incrementAndGet();
+        if (i != (this.mReadSequence.incrementAndGet() & 255)) {
+            Log.w(TAG, "parseNotification read sequence wrong");
+            this.mReadSequence.set(i);
+            this.mReadSequence_2.incrementAndGet();
+        }
+        int i2 = toInt(bArr[0]);
+        int packageType = getPackageType(i2);
+        int subType = getSubType(i2);
+        blufiNotifyData.setType(i2);
+        blufiNotifyData.setPkgType(packageType);
+        blufiNotifyData.setSubType(subType);
+        int i3 = toInt(bArr[1]);
+        blufiNotifyData.setFrameCtrl(i3);
+        FrameCtrlData frameCtrlData = new FrameCtrlData(i3);
+        int i4 = toInt(bArr[3]);
+        byte[] bArr2 = new byte[i4];
+        try {
+            System.arraycopy(bArr, 4, bArr2, 0, i4);
+            if (frameCtrlData.isEncrypted()) {
+                bArr2 = new BlufiAES(this.mAESKey, AES_TRANSFORMATION, generateAESIV(i)).decrypt(bArr2);
+            }
+            if (frameCtrlData.isChecksum()) {
+                int i5 = toInt(bArr[bArr.length - 1]);
+                int i6 = toInt(bArr[bArr.length - 2]);
+                int calcCRC = BlufiCRC.calcCRC(BlufiCRC.calcCRC(0, new byte[]{(byte) i, (byte) i4}), bArr2);
+                int i7 = (calcCRC >> 8) & 255;
+                int i8 = calcCRC & 255;
+                if (i5 != i7 || i6 != i8) {
+                    Log.w(TAG, "parseNotification: read invalid checksum");
+                    if (this.mPrintDebug) {
+                        Log.d(TAG, "expect   checksum: " + i5 + ", " + i6);
+                        Log.d(TAG, "received checksum: " + i7 + ", " + i8);
+                        return -4;
+                    }
+                    return -4;
+                }
+            }
+            blufiNotifyData.addData(bArr2, frameCtrlData.hasFrag() ? 2 : 0);
+            return frameCtrlData.hasFrag() ? 1 : 0;
+        } catch (Exception e) {
+            e.printStackTrace();
+            return -100;
+        }
+    
+
+    def parseBlufiNotifyData(BlufiNotifyData blufiNotifyData) {
+        int pkgType = blufiNotifyData.getPkgType();
+        int subType = blufiNotifyData.getSubType();
+        byte[] dataArray = blufiNotifyData.getDataArray();
+        if (this.mUserBlufiCallback == null || !this.mUserBlufiCallback.onGattNotification(this.mClient, pkgType, subType, dataArray)) {
+            if (pkgType == 0) {
+                parseCtrlData(subType, dataArray);
+            } else if (pkgType != 1) {
+            } else {
+                parseDataData(subType, dataArray);
+            }
+        }
+    }
+
+
         
     
